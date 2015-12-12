@@ -59,7 +59,7 @@ def find_files(sitecode, wateryear, subfolder):
     for root, dir, names in os.walk(subfolder):
         for x in names:
             # exclude filenames with bak or BAK
-            if 'bak' in names or 'BAK' in names:
+            if 'bak' in x or 'BAK' in x:
                 continue
 
             if sitecode in x and str(wateryear) in x:
@@ -67,6 +67,36 @@ def find_files(sitecode, wateryear, subfolder):
 
             elif sitecode.lower() in x and str(wateryear) in x:
                 return os.path.join(subfolder,x)
+
+            else:
+                continue
+
+def find_files_first(sitecode, wateryear):
+    """ Finds the raw data files
+
+    :sitecode: ex. GSWS01
+    :wateryear: ex. 2010
+    :subfolder: ex. '~/myData/working/'
+    """
+    for root, dir, names in os.walk('.'):
+        for x in names:
+
+            # exclude filenames with bak or BAK
+            if 'bak' in x or 'BAK' in x:
+                continue
+
+            if sitecode not in x and str(wateryear) not in x:
+                continue
+
+            if 'first' in x:
+                print(x)
+                if sys.version_info >= (3,0):
+                    value = input("I've already found a FIRST file here. Press 'y' to continue or enter to quit")
+                else:
+                    value = raw_input("I've already found a FIRST file here. Press 'y' to continue or enter to quit")
+
+                if value != 'y':
+                    sys.exit("Quitting... don't blast away that \'re\' file, Don!")
 
             else:
                 continue
@@ -350,7 +380,6 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
 
     if sparse == False:
 
-
         if partial != True:
 
 
@@ -480,10 +509,14 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
         # a list of the observed dates in the raw data
         list_obs = sorted(list(od.keys()))
 
-        # write it to a csv file for subsequent generation
-        with open(output_filename, 'wb') as writefile:
-            writer = csv.writer(writefile, delimiter = ",", quoting=csv.QUOTE_NONNUMERIC)
+        if sys.version_info >= (3,0):
+            mode = 'w'
+        else:
+            mode = 'wb'
 
+        # write it to a csv file for subsequent generation
+        with open(output_filename, mode) as writefile:
+            writer = csv.writer(writefile, delimiter = ",", quoting=csv.QUOTE_NONNUMERIC)
             try:
                 # blank dict has been gap filled
                 for each_date in list_obs:
@@ -510,7 +543,7 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
         output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
 
         # create a backup copy if you're doing the re-adjustment, in the chance something got messed up
-        if method=="re":
+        if method == "re":
             shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re_partial.csv"))
         else:
             pass
@@ -520,7 +553,7 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
         output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
 
         # create a backup copy if you're doing the re-adjustment, in the chance something got messed up
-        if method=="re":
+        if method == "re":
             shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re.csv"))
         else:
             pass
@@ -538,6 +571,10 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
             # raw data of ws3 it's on the 0th column!
             date_type = test_csv_date(filename, 0)
 
+    if date_type == False:
+        date_type = '%Y-%m-%d %H:%M:%S'
+
+
 
     if sys.version_info >= (3,0):
         mode = 'r'
@@ -547,11 +584,11 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
     # open the input file and process
     with open(filename, mode) as readfile:
         reader = csv.reader(readfile)
-
         for row in reader:
 
             # don't bother carrying site code, we'll have it in the function
             # we know that this file is either a 'first' or a 're' file and therefore the date column is always column 1.
+
             dt = datetime.datetime.strptime(str(row[1]), date_type)
 
             # in both the first and "re", the data on which the computation is done is in column 3 (4th column). Raw data is always in column 2 (3rd column)
@@ -582,7 +619,6 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
             elif dt in od:
                 pass
 
-
         # the key function is "determine weights" -- this is where the adjustment happens
         wd = determine_weights(sitecode, wateryear, corr_od, od, partial)
 
@@ -599,7 +635,6 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
         valid_dates = sorted(list(wd.keys()))
 
         for each_date in valid_dates:
-
             writer.writerow([sitecode, datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S'), wd[each_date]['raw'], wd[each_date]['val'], round(wd[each_date]['adj_diff'],3), wd[each_date]['fval'], wd[each_date]['event']])
 
         # add on one extra date stamp to buffer the output. Make the event 'NA'
@@ -814,10 +849,14 @@ def test_csv_date(filename, date_column):
 
     with open(filename, mode) as readfile:
         reader = csv.reader(readfile)
+        #import pdb; pdb.set_trace()
         try:
             testline = reader.next()
         except Exception:
-            testline = next(reader)
+            try:
+                testline = next(reader)
+            except StopIteration:
+                return False
 
         try:
             # YYYY-mm-dd HH:MM:SS
@@ -830,7 +869,6 @@ def test_csv_date(filename, date_column):
                 is_a_date = datetime.datetime.strptime(str(testline[date_column]), dateformat_old)
                 return dateformat_old
             except Exception:
-
                 try:
                     # YYYYmmdd HHMM
                     is_a_date = datetime.datetime.strptime(str(testline[date_column]), dateformat_13char)
@@ -964,6 +1002,8 @@ if __name__ == "__main__":
     # for the "first" and "sparse" methods, we'll generate only the four column format
     if method == "first":
 
+        find_files_first(sitecode, wateryear)
+
         # it returns the FIRST file it finds. So if you have more than one raw file in your raw_data folder, don't trust it won't return that first one.
         filename = find_files(sitecode, wateryear, 'raw_data')
 
@@ -997,6 +1037,8 @@ if __name__ == "__main__":
 
     elif method == "sparse":
 
+        find_files_first(sitecode, wateryear)
+
         filename = find_files(sitecode, wateryear, 'raw_data')
         print("File found for the " + method + " method : " + filename)
 
@@ -1004,16 +1046,13 @@ if __name__ == "__main__":
         # note, if you start after the beginning of the water year you will see the first day as after the beginning of the water year
         od, date_column = parameterize_first(sitecode, wateryear, filename)
 
-
         print("The first day and time in your raw data is " + datetime.datetime.strftime(sorted(list(od.keys()))[0], '%Y-%m-%d %H:%M:%S'))
 
         # generate a first data with or without estimations
-        output_filename_first = generate_first(od, sitecode, partial, sparse=True)
+        output_filename_first = generate_first(od, sitecode, wateryear, partial, sparse=True)
+
 
         print("Generating \'re\' file from " + output_filename_first + " for the method: " + method + ". Recall that the file named " + output_filename_first + " contains merely a replicate of the raw data, and not gapfilled in the " + method + " method, located in the second data column. The leftmost column is the raw data - it is never over written.")
-
-        # generate the adjustments data with the extra column
-        do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, date_column)
 
         # generate the adjustments data with the extra column
         adjusted_dictionary, output_filename_re = do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, date_column)
@@ -1024,10 +1063,27 @@ if __name__ == "__main__":
 
     elif method == "re":
 
-        output_filename_re = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
-
-        print("You are running the \'re\' method, using the file named " + output_filename_re + " which is located in the working directory. A backup has been saved in the backups directory.")
+        # try to find re file or re_partial file!
         try:
+            if partial != True:
+                output_filename_re = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
+            elif partial == True:
+                output_filename_re = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+
+        #     try:
+        #         output_filename_re = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+        #         print("It appears you have a partial file in the working directory. \'re\' will try to process it.")
+        #         partial = True
+        #     except Exception:
+        #         output_filename_re = find_files(sitecode, wateryear, 'working')
+        #         if 'partial' in output_filename_re or 'PARTIAL' in output_filename_re:
+        #             print("It appears you have a partial file in the working directory. \'re\' will try to process it")
+        #             partial = True
+        #         elif 're' in output_filename_re or 'RE' in output_filename_re:
+        #             print("Looks like there is a re file here to process, but the name is unconventional : " + output_filename_re)
+
+            print("You are running the \'re\' method, using the file named " + output_filename_re + " which is located in the working directory. A backup has been saved in the backups directory.")
+
             od, date_column = parameterize_first(sitecode, wateryear, output_filename_re)
 
             adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re, corr_od, method, date_column)
@@ -1036,6 +1092,11 @@ if __name__ == "__main__":
         except Exception:
             # if for some reason you make it with the sitecode in lower case.
             output_filename_re_lower = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode.lower() + "_" + str(wateryear) + "_" + "re.csv")
+
+            if partial == True:
+                output_filename_re_lower = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode.lower() + "_" + str(wateryear) + "_" + "re_partial.csv")
+
+            od, date_column = parameterize_first(sitecode, wateryear, output_filename_re_lower)
 
             adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re_lower, corr_od, method, date_column)
 
