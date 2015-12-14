@@ -80,20 +80,19 @@ def find_files_first(sitecode, wateryear):
     """
     for root, dir, names in os.walk('.'):
         for x in names:
-
             # exclude filenames with bak or BAK
             if 'bak' in x or 'BAK' in x:
                 continue
 
-            if sitecode not in x and str(wateryear) not in x:
+            if sitecode not in x:
                 continue
 
-            if 'first' in x:
-                print(x)
+            if 'first' in x and str(wateryear) in x:
+                print("I found the file: " + x + " ... Do you want to process this FIRST file in your root or raw_data directory?")
                 if sys.version_info >= (3,0):
-                    value = input("I've already found a FIRST file here. Press 'y' to continue or enter to quit")
+                    value = input("Press 'y' to continue, which will destroy the old FIRST file, or enter to quit")
                 else:
-                    value = raw_input("I've already found a FIRST file here. Press 'y' to continue or enter to quit")
+                    value = raw_input("Press 'y' to continue, which will destroy the old FIRST file, or enter to quit")
 
                 if value != 'y':
                     sys.exit("Quitting... don't blast away that \'re\' file, Don!")
