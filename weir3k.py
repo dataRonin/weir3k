@@ -50,56 +50,54 @@ def string_correct(sitecode_raw, wateryear_raw):
     return sitecode, wateryear
 
 def find_files(sitecode, wateryear, subfolder):
-    """ Finds the raw data files
+    """ Finds the raw data files by searching 'raw_data' directory as a subfolder
 
     :sitecode: ex. GSWS01
     :wateryear: ex. 2010
     :subfolder: ex. '~/myData/working/'
     """
+
+    raw_data_file = []
     for root, dir, names in os.walk(subfolder):
         for x in names:
+
             # exclude filenames with bak or BAK
             if 'bak' in x or 'BAK' in x:
                 continue
 
+            # append possible files to the list
             if sitecode in x and str(wateryear) in x:
-                return os.path.join(subfolder,x)
+                raw_data_file.append(os.path.join(subfolder,x))
 
             elif sitecode.lower() in x and str(wateryear) in x:
-                return os.path.join(subfolder,x)
+                raw_data_file.append(os.path.join(subfolder,x))
 
             else:
-                continue
+                pass
 
-def find_files_first(sitecode, wateryear):
-    """ Finds the raw data files
 
-    :sitecode: ex. GSWS01
-    :wateryear: ex. 2010
-    :subfolder: ex. '~/myData/working/'
+    return raw_data_file
+
+def find_root_files(sitecode, wateryear):
+    """ Finds the files containing 'first' that are not in 'raw_data' directory
+
     """
-    for root, dir, names in os.walk('.'):
-        for x in names:
-            # exclude filenames with bak or BAK
-            if 'bak' in x or 'BAK' in x:
-                continue
+    scary_file = []
+    for root, dir, files in os.walk('.', topdown="False"):
+        if 'raw_data' not in root and 'backups' not in root and 'working' not in root:
+            for name in files:
 
-            if sitecode not in x:
-                continue
+                # if the file name contains first and it's not in raw_data
+                if 'first' in name:
+                    # and if it also has the sitecode in its name
+                    if sitecode.upper() in name and str(wateryear) in name:
+                        scary_file.append(name)
+                    elif sitecode.lower() in name and str(wateryear) in name:
+                        scary_file.append(name)
+                    else:
+                        pass
 
-            if 'first' in x and str(wateryear) in x:
-                print("I found the file: " + x + " ... Do you want to process this FIRST file in your root or raw_data directory?")
-                if sys.version_info >= (3,0):
-                    value = input("Press 'y' to continue, which will destroy the old FIRST file, or enter to quit")
-                else:
-                    value = raw_input("Press 'y' to continue, which will destroy the old FIRST file, or enter to quit")
-
-                if value != 'y':
-                    sys.exit("Quitting... don't blast away that \'re\' file, Don!")
-
-            else:
-                continue
-
+    return scary_file
 
 def create_subfolders(sitecode, wateryear):
     """ Creates directories for images and for working data
@@ -311,11 +309,24 @@ def convert_corr_to_dict(sitecode, wateryear):
     return od
 
 def drange(start, stop, step):
-    """ fraction/date range generator """
+    """
+    Creates a generator for walking over just about any kind of iterable you can imagne
+    """
     r = start
     while r < stop:
         yield r
         r += step
+
+def wrapper(walk, stop):
+    """
+    Holds a drange (calling it a walk here) and it's stop value, and returns the stop value rather than StopIteration
+    """
+    try:
+        return next(walk)
+    except StopIteration:
+        return stop
+    finally:
+        del(walk)
 
 def parameterize_first(sitecode, wateryear, filename):
     """ from the raw input figure out which column has the dates and what its format is. assume that the data is in the column which is to the right of the dates. """
@@ -339,6 +350,7 @@ def parameterize_first(sitecode, wateryear, filename):
         reader = csv.reader(readfile)
 
         for row in reader:
+
             # get the date time and call it dt.
             dt = datetime.datetime.strptime(str(row[column]), date_type)
 
@@ -374,14 +386,10 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
     ** new feature : if an extra arguement of 'partial' exists, the date will start on a more recent day.
     """
 
-
     output_filename = sitecode + "_" + str(wateryear) + "_" + "first.csv"
 
     if sparse == False:
-
         if partial != True:
-
-
             # create an iteterator of a perfect wateryear at 5 minute intervals going from before your data started to after it completes by 5 minutes.
             compare_range = drange(datetime.datetime(wateryear-1, 10, 1, 0, 0), datetime.datetime(wateryear, 10, 1, 0, 5), datetime.timedelta(minutes=5))
 
@@ -976,20 +984,26 @@ if __name__ == "__main__":
     :sitecode: - on command line, "GSWS01"
     :year: - on command line 2014
     :mode: - on command line 'first', 'sparse'', 're'
+    :partial: - optional fourth argument of 'partial'.
+
 
     ..Example:
     python weir2k.py "GSWS01" 2014 "first"
+    python weir3k.py "GSWS03" 2015 "re" "partial"
 
     """
     sitecode_raw = sys.argv[1]
     wateryear_raw = sys.argv[2]
     method= sys.argv[3]
 
+    # partial is either false or true, but must be given after the mode of "first", "sparse", or "re"
     partial = False
 
-    if len(sys.argv) > 4 and sys.argv[4] == 'partial':
+    # for partial, if the sys.argv > 4 (script name + 3) run partial if the fourth arguement is partial
+    if len(sys.argv) > 4 and str(sys.argv[4]).lower() == 'partial':
         partial = True
 
+    # checks for upper and lower case things
     sitecode, wateryear = string_correct(sitecode_raw, wateryear_raw)
 
     # get the corr table and put it into a dictionary
@@ -1001,21 +1015,70 @@ if __name__ == "__main__":
     # for the "first" and "sparse" methods, we'll generate only the four column format
     if method == "first":
 
-        find_files_first(sitecode, wateryear)
+        # return a list of files in raw data that contain your site code and water year.
+        filename_list = find_files(sitecode, wateryear, 'raw_data')
 
-        # it returns the FIRST file it finds. So if you have more than one raw file in your raw_data folder, don't trust it won't return that first one.
-        filename = find_files(sitecode, wateryear, 'raw_data')
 
-        print("File found for the " + method + " method : " + filename)
+        if len(filename_list) > 1:
 
-        # figure out what columns contain the dates and raw values and read in from csv
+            # warn don there are more than one first file in the raw data directory, and ask him to copy and paste the name of the right file on the line, or to type 'NO'
+            string_name = ", ".join(filename_list)
+
+            # Python 3
+            if sys.version_info >= (3,0):
+                valid = input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path) of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                    sys.exit("Exiting! Try cleaning your \'raw_data\' directory to only have 1 file for the given site and year")
+
+                print("File found for the " + method + " method : " + filename)
+
+            # Python 2
+            elif sys.version_info < (3,0):
+                valid = raw_input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path) of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                     sys.exit("Exiting! Try cleaning your \'raw_data\' directory to only have 1 file for the given site and year")
+
+                print("File found for the " + method + " method : " + filename)
+
+        # if only one file is in the raw_data folder with that site and water year, print its name and use it
+        elif len(filename_list) == 1:
+
+            filename = filename_list[0]
+            print("File found for the " + method + " method : " + filename)
+
+        # if no files are found, then throw an exit
+        elif filename_list == []:
+            sys.exit("You don\'t have any files to process in your \'raw_data\' directory containing the sitecode and water year you desire. Please add the files.")
+
+        # if it screws up, then throw an exit
+        else:
+            sys.exit("Please check the program, you are getting an error trying to import from directory \'raw_data\'. No files are being found or called.")
+
+        # find files in the root containing the word "first"
+        scary_files = find_root_files(sitecode, wateryear)
+
+        # if there are files in root containing 'first', copy them to 'backups'
+        if scary_files != []:
+
+            scary_string = ", ".join(scary_files)
+            print("There are file(s) in your root that contain the string \'first\'. These are -- " + scary_string + "-- For your safety, I am copying this/these file(s) to your \'backups\' directory.")
+
+            for each_file in scary_files:
+                shutil.copy(each_file, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups", each_file))
+
+        # figure out what columns contain the dates (date_column) and raw values and read in from csv
         # note, if you started after the beginning of the water year, you will see the first day here as after he beginning of the water year.
         od, date_column = parameterize_first(sitecode, wateryear, filename)
 
         print("The first day and time in your raw data is " + datetime.datetime.strftime(sorted(list(od.keys()))[0], '%Y-%m-%d %H:%M:%S'))
 
         # generate a first data with or without estimations
-        #import pdb; pdb.set_trace()
         output_filename_first = generate_first(od, sitecode, wateryear, partial, sparse=False)
 
 
@@ -1030,16 +1093,64 @@ if __name__ == "__main__":
         print("Generated \'re\'' file named " + output_filename_re + " and put it in the working directory!")
 
 
-        #make_optional_graphs(adjusted_dictionary) <--- do not run this! not for use!!
+        #make_optioal_graphs(adjusted_dictionary) <--- do not run this! not for use!!
         make_graphs(sitecode, wateryear, adjusted_dictionary)
-
 
     elif method == "sparse":
 
-        find_files_first(sitecode, wateryear)
+        # return a list of files in raw data that contain your site code and water year.
+        filename_list = find_files(sitecode, wateryear, 'raw_data')
 
-        filename = find_files(sitecode, wateryear, 'raw_data')
-        print("File found for the " + method + " method : " + filename)
+        if len(filename_list) > 1:
+
+            string_name = ", ".join(filename_list)
+
+            if sys.version_info >= (3,0):
+                valid = input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                    sys.exit("Exiting! Try cleaning your \'raw_data\' directory to only have 1 file for the given site and year")
+                # tell you what file you found
+                print("File found for the " + method + " method : " + filename)
+
+
+            elif sys.version_info < (3,0):
+                valid = raw_input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                     sys.exit("Exiting! Try cleaning your \'raw_data\' directory to only have 1 file for the given site and year")
+                # tell you what file you found
+                print("File found for the " + method + " method : " + filename)
+
+
+        elif len(filename_list) == 1:
+
+            filename = filename_list[0]
+
+            # tell you what file you found
+            print("File found for the " + method + " method : " + filename)
+
+
+        elif filename_list == []:
+            sys.exit("You don\'t have any files to process in your \'raw_data\' directory containing the sitecode and water year you desire. Please add the files.")
+
+        else:
+            sys.exit("Please check the program, you are getting an error trying to import from directory \'raw_data\'. No files are being found or called.")
+
+        # find files in the root containing the word "first"
+        scary_files = find_root_files(sitecode, wateryear)
+
+        if scary_files != []:
+
+            scary_string = ", ".join(scary_files)
+            print("There are file(s) in your root that contain the string \'first\'. These are -- " + scary_string + "-- For your safety, I am copying this/these file(s) to your \'backups\' directory.")
+
+            for each_file in scary_files:
+                shutil.copy(each_file, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups", each_file))
 
         # figure out what columns contain the dates and raw values and read in from csv
         # note, if you start after the beginning of the water year you will see the first day as after the beginning of the water year
@@ -1061,6 +1172,54 @@ if __name__ == "__main__":
         make_graphs(sitecode, wateryear, adjusted_dictionary)
 
     elif method == "re":
+
+        # new directory
+        dirname = sitecode + "_" + str(wateryear) + "_" + "working"
+        filename_list = find_files(sitecode, wateryear, dirname)
+
+        if len(filename_list) > 1:
+
+            string_name = ", ".join(filename_list)
+
+            if sys.version_info >= (3,0):
+                valid = input("Found multiple potential files -- " + string_name + " -- for the \'re\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path) of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                    sys.exit("Exiting! Try cleaning your \'working\' directory to only have 1 file for the given site and year")
+                # tell you what file you found
+                print("File found for the " + method + " method : " + filename)
+
+
+            elif sys.version_info < (3,0):
+                valid = raw_input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
+
+                if valid != 'NO':
+                    filename = valid
+                else:
+                     sys.exit("Exiting! Try cleaning your \'raw_data\' directory to only have 1 file for the given site and year")
+                # tell you what file you found
+                print("File found for the " + method + " method : " + filename)
+
+
+        elif len(filename_list) == 1:
+
+            filename = filename_list[0]
+
+            # tell you what file you found
+            print("File found for the " + method + " method : " + filename)
+
+
+        elif filename_list == []:
+            sys.exit("You don\'t have any files to process in your \'raw_data\' directory containing the sitecode and water year you desire. Please add the files.")
+
+        else:
+            sys.exit("Please check the program, you are getting an error trying to import from directory \'raw_data\'. No files are being found or called.")
+
+        if "first" in filename:
+            print("The file in your \'raw_data\' contains the string \'first\'. For your safety, I am copying this file to your \'backups\' directory.")
+            shutil.copy(filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups", sitecode + "_" + str(wateryear) + "_" + "first.csv"))
 
         # try to find re file or re_partial file!
         try:
