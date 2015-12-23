@@ -359,6 +359,11 @@ def parameterize_first(sitecode, wateryear, filename):
 
                 if str(data_value) == "nan":
                     data_value = None
+
+                # if you forgot and put ESTIMATED DATA IN THE RAW DATA FOLDER
+
+                if len(row) > 4 and row[column + 4] == "E":
+                    data_value = round(float(row[column + 2]),3)
                 else:
                     pass
 
@@ -376,6 +381,7 @@ def parameterize_first(sitecode, wateryear, filename):
             elif dt in od:
                 pass
 
+
     return od, date_column
 
 def generate_first(od, sitecode, wateryear, partial, sparse=False):
@@ -389,8 +395,10 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
     output_filename = sitecode + "_" + str(wateryear) + "_" + "first.csv"
 
     if sparse == False:
+
+        # this section just deals with the partial method
         if partial != True:
-            # create an iteterator of a perfect wateryear at 5 minute intervals going from before your data started to after it completes by 5 minutes.
+            # generator to make iterator of a perfect wateryear at 5 minute intervals going from before your data started to after it completes by 5 minutes. The StopIteration gets thrown on the last one, so you wend at 10-01-wateryear.
             compare_range = drange(datetime.datetime(wateryear-1, 10, 1, 0, 0), datetime.datetime(wateryear, 10, 1, 0, 5), datetime.timedelta(minutes=5))
 
         elif partial == True:
@@ -400,10 +408,10 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
             start_date = min(list(od.keys()))
             print(" You are processing a partial water year. Your data will start on " + datetime.datetime.strftime(start_date, '%Y-%m-%d %H:%M:%S'))
 
-            # if it's a partial, create a generator that starts on the first date-time of your data and goes to the end of the water year, by five minutes
+            #  generator to make iterator of a perfect wateryear at 5 minute intervals going from before your data started to after it completes by 5 minutes. The StopIteration gets thrown on the last one, so you wend at 10-01-wateryear.
             compare_range = drange(start_date, datetime.datetime(wateryear, 10, 1, 0, 5), datetime.timedelta(minutes=5))
 
-        # create a blank dictionary with 5 minute spacing
+        # Create a blank dictionary with 5 minute spacing. Last value will be on 10-01-wateryear
         blank_dict = dict.fromkeys(compare_range)
 
         # update your blank dictionary it with existing values from the raw data
@@ -415,31 +423,34 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
 
         # first fill it with blanks and accepteds based on the blanks!
         for each_date in sorted(list(blank_dict.keys())):
+
+            # if data is missing from the raw data, fill in with 'M'
             if blank_dict[each_date] == None:
                 flag_dict.update({each_date:'M'})
             else:
                 flag_dict.update({each_date:'A'})
 
-        # create a dictionary to contain estimations
+        # create a dictionary to contain estimations (remember this is not the sparse method!)
         estim_dict = {}
 
         # a list of all of the observed dates in the raw data
         list_obs_1 = sorted(list(od.keys()))
 
-        # a list of the dates which come in via the raw data and have either an observation or a non-conventional missing value
+        # a list of the dates which come in via the raw data and have either an observation or a non-conventional missing value (i.e. anything but numeric none)
         list_possible_data = [key for (key,value) in sorted(list(od.items())) if value != None]
 
+        # if the observational data has any gaps in it, it will be smaller than the filled up data and we will want our observations array to be smaller than the filled up array, otherwise, they can be the same size
         if len(list_possible_data) < len(list_obs_1):
             list_obs = list_possible_data
         else:
             list_obs = list_obs_1
 
         # iterate over the observed dates in the raw data
+        #(note that it will only go up to the second to last thing, so that when we add 1 index to it, the last thing will be ok)
         for index, each_obs in enumerate(list_obs[:-1]):
 
             # compute the difference between subsequent observations and test if it is 5 minutes. Subtracting these should result in datetime.timedelta(0, 300)
             compute_obs = list_obs[index+1] - list_obs[index]
-
 
             # if the obsevations computed are five minutes from one another, store them in the estimated dictionary, otherwise, use the drange function to do a linear interpolation between them
             if compute_obs == datetime.timedelta(minutes=5):
@@ -451,7 +462,6 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
                 # generate a small range of dates for the missing dates and listify
                 mini_dates = drange(list_obs[index], list_obs[index+1], datetime.timedelta(minutes=5))
                 dl = [x for x in mini_dates]
-
 
                 # if the current value and the next one are the same
                 if od[list_obs[index]] == od[list_obs[index+1]]:
@@ -491,11 +501,16 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
                     newd={}
                     newd2={}
 
+        # if the maximum from the blank is not in the estimated we need to add it
+        if max(blank_dict.keys()) not in estim_dict.keys():
+            estim_dict.update({max(blank_dict.keys()):blank_dict[max(blank_dict.keys())]})
+
         # writing modes for python3
         if sys.version_info >= (3,0):
             mode = 'w'
         else:
             mode = 'wb'
+
 
         # write it to a csv file for subsequent generation
         with open(output_filename, mode) as writefile:
@@ -504,6 +519,7 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
             try:
                 # blank dict has been gap filled
                 for each_date in sorted(list(blank_dict.keys())):
+
                     dt = datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S')
 
                     writer.writerow([sitecode, dt, blank_dict[each_date], estim_dict[each_date], flag_dict[each_date]])
@@ -516,54 +532,166 @@ def generate_first(od, sitecode, wateryear, partial, sparse=False):
         # a list of the observed dates in the raw data
         list_obs = sorted(list(od.keys()))
 
+        # if the final date time in the sparse method is before the end of the water year notify user
+        if max(od.keys()) < datetime.datetime(wateryear, 10, 1, 0, 0):
+            print("In this sparse analysis, your final data occurs BEFORE the end of the water year, on :" + datetime.datetime.strftime(max(od.keys()), '%Y-%m-%d %H:%M:%S'))
+
         if sys.version_info >= (3,0):
             mode = 'w'
         else:
             mode = 'wb'
 
+
         # write it to a csv file for subsequent generation
         with open(output_filename, mode) as writefile:
             writer = csv.writer(writefile, delimiter = ",", quoting=csv.QUOTE_NONNUMERIC)
+
             try:
-                # blank dict has been gap filled
+                # blank dict has NOT  been gap filled
                 for each_date in list_obs:
                     dt = datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S')
-                    writer.writerow([sitecode, dt, od[each_date], od[each_date], 'A'])
+
+                    try:
+                        writer.writerow([sitecode, dt, od[each_date], od[each_date], 'A'])
+                    except Exception:
+                        pass
 
             except Exception:
                 pass
 
     return output_filename
 
-def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
+
+def do_adjustments(sitecode, wateryear, filename, corr_od, method, partial, date_column):
     """ Performs adjustments on the outputs - ALWAYS pulls from column 3!
 
     :sitecode: ex. GSWS01
     :wateryear: ex. 2010
-    :filename: csv file containing the input (program assigns)
+    :filename: csv file containing the input (program assigns in main loop for first and sparse)
     :corr_od: dictionary of corrections
-    :method: 're' in most cases
+    :method: 're' in most cases, 'first', 'sparse' also possible
+    :partial: True or False
+    :date_column: in which column of the data is the date
     """
 
-    if 'partial' in filename:
-        # create a name for your output files
-        output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+    # on the first go round
+    if method == "first" or method == "sparse":
 
-        # create a backup copy if you're doing the re-adjustment, in the chance something got messed up
-        if method == "re":
-            shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re_partial.csv"))
-        else:
-            pass
 
-    else:
-        # create a name for your output files
-        output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
+        # new output location
+        dirname = str(sitecode) + "_" + str(wateryear) + "_" + "working"
+        filename_list = find_files(sitecode, wateryear, dirname)
 
-        # create a backup copy if you're doing the re-adjustment, in the chance something got messed up
-        if method == "re":
-            shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re.csv"))
-        else:
-            pass
+        # make sure working directory is blank
+        if filename_list == []:
+
+            if partial == True:
+
+                output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+
+                print("Creating " + output_filename + " to \'working\'. Running \'re\' \'partial\'")
+
+            elif partial == False:
+
+                output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
+
+                print("Creating " + output_filename + " to \'working\'. Running \'re\'")
+
+        # if it's not blank, check for existing file you don't want to over write
+        elif filename_list != []:
+
+            if partial == True:
+
+                for name in filename_list:
+                    if 'partial' in name:
+
+                        sys.exit("You have a file in the working directory called " + name + ". Please save this file elsewhere and remove it from working before continuing")
+                    else:
+                        output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+
+            elif partial == False:
+
+                for name in filename_list:
+                    if 'partial' not in name:
+
+                        sys.exit("You have a file in the working directory called " + name + ". Please save this file elsewhere and remove it from working before continuing")
+                    else:
+                        output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re.csv")
+
+            else:
+                possibly_dangerous = ", ".join(filename_list)
+
+                sys.exit("You have a files in the working directory called " + possibly_dangerous + ". Please save these files elsewhere and remove them from working before continuing")
+
+    # if the re adjustmet, check the working directory for the files with your sitecode and wateryear
+    elif method == "re":
+
+        dirname = str(sitecode) + "_" + str(wateryear) + "_" + "working"
+        filename_list = find_files(sitecode, wateryear, dirname)
+
+        if len(filename_list) > 1:
+
+            if partial == True:
+
+                # if we find a partial and we're doing partial, we want to break out
+                for name in filename_list:
+
+                    # if you have a partial already and you are running partial, you'll want to use it
+                    if 'partial' in name:
+
+                        # you will overwriate the old one -- i.e. you write to "re_partial" and you input from "re_partial"
+                        output_filename = name
+
+                        # if you already have the re, you want to copy it
+                        shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re_partial.csv"))
+
+                        print("saved a copy of " + name + " to \'backups\'. Running \'re\' \'partial\' on " + name + " and outputs go to \'working\'")
+
+                        # write over the existing file with your new one
+                        #filename = os.path.join(dirname,name)
+                        break
+
+                    # if we don't find a partial and we're doing partial we must make one
+                    elif 'partial' not in name:
+
+                        # create a name for your output files which are of the partial method
+                        output_filename = os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "working", sitecode + "_" + str(wateryear) + "_" + "re_partial.csv")
+
+                        print("creating " + name + " to \'backups\'. Running \'re\' \'partial\' on " + name + " and outputs go to \'working\'")
+
+            elif partial == False:
+
+                # if we find a partial and we're not doing partial, we want to skip it
+                for name in filename_list:
+
+                    # if partial is in the name, skip it
+                    if 'partial' in name:
+                        continue
+
+                    else:
+                        output_filename = name
+
+                        # if you already have the re, you want to copy it
+                        shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re.csv"))
+                        print("saved a copy of " + name + " to \'backups\'. Running \'re\' on " + name + " and outputs go to \'working\'")
+
+                        #filename = os.path.join(dirname,name)
+                        break
+
+        elif len(filename_list) == 1:
+
+            if partial==True and 'partial' in filename_list[0]:
+                output_filename = filename_list[0]
+
+                print("saved a copy of " + filename_list[0] + " to \'backups\'. Running \'re\' \'partial\' on " + filename_list[0] + " and outputs go to \'working\'")
+
+                shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re_partial.csv"))
+
+            elif partial== False and 'partial' not in filename_list[0]:
+                output_filename = filename_list[0]
+
+                print("saved a copy of " + filename_list[0] + " to \'backups\'. Running \'re\' on " + filename_list[0] + " and outputs go to \'working\'")
+                shutil.copy(output_filename, os.path.join(str(sitecode) + "_" + str(wateryear) + "_" + "backups",sitecode + "_" + str(wateryear) + "_" + "re.csv"))
 
     # a blank output dictionary structure
     od = {}
@@ -571,6 +699,7 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
     # check date type by using the first column
     try:
         date_type = test_csv_date(filename, date_column)
+
     except Exception:
         try:
             date_type = test_csv_date(filename, 1)
@@ -581,12 +710,11 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
     if date_type == False:
         date_type = '%Y-%m-%d %H:%M:%S'
 
-
-
     if sys.version_info >= (3,0):
         mode = 'r'
     else:
         mode = 'rb'
+
 
     # open the input file and process
     with open(filename, mode) as readfile:
@@ -595,14 +723,18 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
 
             # don't bother carrying site code, we'll have it in the function
             # we know that this file is either a 'first' or a 're' file and therefore the date column is always column 1.
-
-            dt = datetime.datetime.strptime(str(row[1]), date_type)
+            try:
+                dt = datetime.datetime.strptime(str(row[1]), date_type)
+            except Exception:
+                # just in case, reference column
+                dt = datetime.datetime.strptime(str(row[date_column]), date_type)
 
             # in both the first and "re", the data on which the computation is done is in column 3 (4th column). Raw data is always in column 2 (3rd column)
             try:
                 data_value = round(float(row[3]),3)
             except Exception:
                 data_value = None
+
 
             # raw values brought across, but don't do anything with them in times other than the first time, store in column 2 (third column)
             try:
@@ -642,11 +774,17 @@ def do_adjustments(sitecode, wateryear, filename, corr_od, method, date_column):
         valid_dates = sorted(list(wd.keys()))
 
         for each_date in valid_dates:
-            writer.writerow([sitecode, datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S'), wd[each_date]['raw'], wd[each_date]['val'], round(wd[each_date]['adj_diff'],3), wd[each_date]['fval'], wd[each_date]['event']])
+
+            try:
+                writer.writerow([sitecode, datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S'), wd[each_date]['raw'], wd[each_date]['val'], round(wd[each_date]['adj_diff'],3), wd[each_date]['fval'], wd[each_date]['event']])
+
+            except Exception:
+                if wd[each_date]['raw'] == None:
+                    writer.writerow([sitecode, datetime.datetime.strftime(each_date, '%Y-%m-%d %H:%M:%S'), wd[each_date]['raw'], wd[each_date]['val'], None, 'M', wd[each_date]['event']])
 
         # add on one extra date stamp to buffer the output. Make the event 'NA'
-        last_date = valid_dates[-1] + datetime.timedelta(minutes = 5)
-        writer.writerow([sitecode, datetime.datetime.strftime(last_date, '%Y-%m-%d %H:%M:%S'), wd[valid_dates[-1]]['raw'], wd[valid_dates[-1]]['val'], round(wd[valid_dates[-1]]['adj_diff'],3), wd[valid_dates[-1]]['fval'], 'NA'])
+        #last_date = valid_dates[-1] + datetime.timedelta(minutes = 5)
+        #writer.writerow([sitecode, datetime.datetime.strftime(last_date, '%Y-%m-%d %H:%M:%S'), wd[valid_dates[-1]]['raw'], wd[valid_dates[-1]]['val'], round(wd[valid_dates[-1]]['adj_diff'],3), wd[valid_dates[-1]]['fval'], 'NA'])
 
     return wd, output_filename
 
@@ -662,7 +800,7 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
         corr_dates_as_list = sorted(list(corr_od.keys()))
 
     except Exception:
-        # in 2015 the end date is missing so we need to not use that one, it is "None"
+        # in the most recent year the end date is missing so we need to not use that one, it is "None"
         corr_dates_1 = [x for x in corr_od.keys() if x != None]
         corr_dates_as_list = sorted(list(corr_dates_1))
 
@@ -672,6 +810,7 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
     # filter the correction table to only include things that are indexed on an enddate which is in our water year - nothing after this year.
 
     if partial == True:
+
         first_index_preceding_data = [index for index,x in enumerate(corr_dates_as_list) if x>=min(od.keys())][0] - 1
 
         # remove corr dates you don't need to look at if doing a partial year.
@@ -692,16 +831,12 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
     iterator_for_correction = iter(relevant_corr_dates)
 
     # the first correction to be applied - first date-time in your list
-    try:
+    if sys.version_info >=(3,0):
         this_correction = next(iterator_for_correction)
-    except Exception:
+    else:
         this_correction = iterator_for_correction.next()
 
     for each_date in observed_dates_as_list:
-
-        # # for testing:
-        # if each_date > datetime.datetime(2013,10,23,0,0):
-        #     import pdb; pdb.set_trace()
 
         # as long as the date is less than the correction factor or equal to it
         if each_date <= this_correction:
@@ -738,6 +873,7 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
             # now we will take the weighted beginning ratio and multiply the value by it, and add that to the weighted ending ratio, also multiplied by the value, to generate the adjustment.
             try:
                 adjusted_value_rat = round(weighted_begin_ratio*od[each_date]['val'] + weighted_end_ratio*od[each_date]['val'],3)
+
             except Exception:
                 adjusted_value_rat = None
 
@@ -745,6 +881,7 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
                 # adjusted by difference method
                 # ex, if the beginning is 50% of the weight and the adj is + 3 and the end is 50% of the weight and the adj is -5, then the middle is + 1.5 - 2.5, which is -1, plus whatever the actual value on the cr logger is
                 adjusted_value_diff = round(weighted_begin_diff, 3) + round(weighted_end_diff,3) + od[each_date]['val']
+
             except Exception:
                 adjusted_value_diff= None
 
@@ -758,11 +895,13 @@ def determine_weights(sitecode, wateryear, corr_od, od, partial):
             # if the date incoming is not the same as the correction date, the event is a nonevent.
             if each_date != this_correction:
                 event = 'NA'
+            # if the date incoming is a correction event, mark it
             else:
                 event = "MAINTE"
 
         # if the event is more than the correction date, we need to move to the next correction factor.
         elif each_date > this_correction:
+
 
             # assign the event
             event = 'NA'
@@ -1018,7 +1157,6 @@ if __name__ == "__main__":
         # return a list of files in raw data that contain your site code and water year.
         filename_list = find_files(sitecode, wateryear, 'raw_data')
 
-
         if len(filename_list) > 1:
 
             # warn don there are more than one first file in the raw data directory, and ask him to copy and paste the name of the right file on the line, or to type 'NO'
@@ -1076,7 +1214,8 @@ if __name__ == "__main__":
         # note, if you started after the beginning of the water year, you will see the first day here as after he beginning of the water year.
         od, date_column = parameterize_first(sitecode, wateryear, filename)
 
-        print("The first day and time in your raw data is " + datetime.datetime.strftime(sorted(list(od.keys()))[0], '%Y-%m-%d %H:%M:%S'))
+        print("The first day and time in your raw data is " + datetime.datetime.strftime(min(od.keys()), '%Y-%m-%d %H:%M:%S'))
+        print("The final day and time in your raw data is " + datetime.datetime.strftime(max(od.keys()), '%Y-%m-%d %H:%M:%S'))
 
         # generate a first data with or without estimations
         output_filename_first = generate_first(od, sitecode, wateryear, partial, sparse=False)
@@ -1088,7 +1227,7 @@ if __name__ == "__main__":
             print("Remeber that you used the partial method!")
 
         # generate the adjustments data with the extra column
-        adjusted_dictionary, output_filename_re = do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, date_column)
+        adjusted_dictionary, output_filename_re = do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, partial, date_column)
 
         print("Generated \'re\'' file named " + output_filename_re + " and put it in the working directory!")
 
@@ -1106,7 +1245,7 @@ if __name__ == "__main__":
             string_name = ", ".join(filename_list)
 
             if sys.version_info >= (3,0):
-                valid = input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
+                valid = input("Found multiple potential files -- " + string_name + " -- for the \'sparse\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
 
                 if valid != 'NO':
                     filename = valid
@@ -1117,7 +1256,7 @@ if __name__ == "__main__":
 
 
             elif sys.version_info < (3,0):
-                valid = raw_input("Found multiple potential files -- " + string_name + " -- for the \'first\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
+                valid = raw_input("Found multiple potential files -- " + string_name + " -- for the \'sparse\' analysis. If you don't want to proceed, please type \'NO\'. Otherwise, please copy and paste the FULL name (including the path)  of the desired file at the prompt: ~>")
 
                 if valid != 'NO':
                     filename = valid
@@ -1165,7 +1304,7 @@ if __name__ == "__main__":
         print("Generating \'re\' file from " + output_filename_first + " for the method: " + method + ". Recall that the file named " + output_filename_first + " contains merely a replicate of the raw data, and not gapfilled in the " + method + " method, located in the second data column. The leftmost column is the raw data - it is never over written.")
 
         # generate the adjustments data with the extra column
-        adjusted_dictionary, output_filename_re = do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, date_column)
+        adjusted_dictionary, output_filename_re = do_adjustments(sitecode, wateryear, output_filename_first, corr_od, method, partial, date_column)
 
         print("Generated re file named " + output_filename_re + " !")
 
@@ -1212,10 +1351,11 @@ if __name__ == "__main__":
 
 
         elif filename_list == []:
-            sys.exit("You don\'t have any files to process in your \'raw_data\' directory containing the sitecode and water year you desire. Please add the files.")
+            sys.exit("You don\'t have any files to process in your \'working\' directory containing the sitecode and water year you desire. Please add the files.")
 
         else:
-            sys.exit("Please check the program, you are getting an error trying to import from directory \'raw_data\'. No files are being found or called.")
+            sys.exit("Please check the program, you are getting an error trying to import from directory \'working\'. No files are being found or called.")
+
 
         if "first" in filename:
             print("The file in your \'raw_data\' contains the string \'first\'. For your safety, I am copying this file to your \'backups\' directory.")
@@ -1244,7 +1384,7 @@ if __name__ == "__main__":
 
             od, date_column = parameterize_first(sitecode, wateryear, output_filename_re)
 
-            adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re, corr_od, method, date_column)
+            adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re, corr_od, method, partial, date_column)
 
 
         except Exception:
@@ -1256,6 +1396,6 @@ if __name__ == "__main__":
 
             od, date_column = parameterize_first(sitecode, wateryear, output_filename_re_lower)
 
-            adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re_lower, corr_od, method, date_column)
+            adjusted_dictionary, output_filename = do_adjustments(sitecode, wateryear, output_filename_re_lower, corr_od, method, partial, date_column)
 
         make_graphs(sitecode, wateryear, adjusted_dictionary)

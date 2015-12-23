@@ -406,6 +406,7 @@ def loop_over_data(o3, o1):
 
             # this is the list of dates, stages, instq, total_q, and mean_q, in order, by dates
             computed_dates = sorted(list(od_2.keys()))
+
             #print("the number of values in this date structure were " + str(len(od_2)))
 
             computed_stages = [od_2[x]['stage'] for x in computed_dates]
@@ -444,7 +445,10 @@ def check_value_versus_keys(rating_calib, value):
             pass
 
 def interpolate_raw(first_value, second_value, interval_length):
-    """ Returns appropriate linear interpolation, usually is 5 minutes. Sadly you'd be numpy-free without this."""
+    """ Returns appropriate linear interpolation,
+    usually is 5 minutes.
+    Sadly you'd be numpy-free without this.
+    """
 
     fxn_interp = interp1d([0,interval_length],[first_value, second_value])
 
@@ -452,7 +456,11 @@ def interpolate_raw(first_value, second_value, interval_length):
     try:
         return fxn_interp(xrange(0, interval_length))
     except Exception:
-        return fxn_interp(range(0, interval_length))
+        try:
+            return fxn_interp(range(0, interval_length))
+        except Exception:
+            return fxn_interp(range(0, int(interval_length)))
+
 
 def check_interval_length(first_date, second_date, desired=300):
     """
@@ -474,12 +482,13 @@ def check_interval_length(first_date, second_date, desired=300):
     except Exception:
         dt_diff = dt2-dt1
 
-    if dt_diff.seconds == 300:
+    if dt_diff.seconds == 300 and dt_diff.days == 0:
         return 5
     else:
-        print("interval is not the right length!")
-        print("using " + str(int(dt_diff.seconds)/60))
-        return int(dt_diff.seconds)/60
+        # make sure to include the whole days too
+        #print("interval is not the right length!")
+        #print("using " + str(int(dt_diff.seconds)/60))
+        return int(dt_diff.days)*1440 + int(dt_diff.seconds)/60
 
 def logfunc(a,b,x):
     """ the transform we need to solve for winters """
@@ -590,9 +599,13 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
     # Not going out enough or too much will throw you into the wrong equation set.
 
     if sys.version_info >= (3,0):
-        this_stage = round(float(next(raw_hts)),7)
+        try:
+            this_stage = round(float(next(raw_hts)),7)
+        except Exception:
+            import pdb; pdb.set_trace()
     else:
         this_stage = round(float(raw_hts.next()),7)
+
     print("the first stage is " + str(this_stage))
 
     if sys.version_info >= (3,0):
@@ -657,6 +670,8 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
                 #import pdb; pdb.set_trace()
                 continue
 
+            #if this_date == datetime.datetime(2014,10,2,0,0):
+            #    import pdb; pdb.set_trace()
             # makes sure that the interval is the correct length (300 seconds == 5 minutes). if it is not, returns the appropriate length. If you want not five minutes add in a third arguement for a different stamp like: interval_length = check_interval_length(this_date, next_date, desired = 100) or whatever you want
             interval_length = check_interval_length(this_date, next_date)
 
@@ -673,6 +688,7 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
                 if this_date not in od:
                     try:
                         od[this_date] ={'stage': round(this_stage,3), 'inst_q': inst_q, 'total_q': desired*inst_q, 'mean_q': inst_q}
+
                     except Exception:
                         # this might happen if there is no flow or "negative flow"
                         od[this_date] ={'stage': round(this_stage,3), 'inst_q': None, 'total_q': None, 'mean_q': None}
@@ -714,24 +730,29 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
                 # update the "current stage and date"
                 this_stage = next_stage
                 this_date = next_date
+
                 continue
 
 
             # if the next stage > this_max or the next_stage <= the low cutoff or the interval length is not 5
             else:
                 try:
+
                     # if its not in that same range we get a new calibration
                     low_cutoff, this_max = check_value_versus_keys(rating_calib, next_stage)
 
                 except Exception:
-                    print("Adam has assigned an unexceptable missing code, converting to Pythonic None")
+                    # will be called  if the value is none/nan/unexpected
+                    print("Adam has assigned an unexceptable missing code or the data value is way out of the allowed range of the max height, please check on " + datetime.datetime.strftime(this_date, '%Y-%m-%d %H:%M:%S') + ", converting to Pythonic None")
 
                     if str(next_stage) == "nan":
-                        next_stage = "None"
+                        next_stage = None
+                    elif next_stage > this_max:
+                        next_stage = None
 
                     #else:
                     #    next_stage = "None"
-                    import pdb; pdb.set_trace()
+
                     return od
 
                 #print "next stage is UNLIKE stage : " + str(this_stage) + " on " + datetime.datetime.strftime(this_date,'%Y-%m-%d %H:%M:%S')
@@ -739,24 +760,71 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
                 # interpolate for one minute for each value
                 one_minute_heights = interpolate_raw(this_stage, next_stage, interval_length)
 
+                # blank for wrong length interval - ex. when sparse
+                pseudo_dates = []
+
+                # if the interval is the wrong length, create fake date stamps where the minutes are 5
+                if interval_length != 5:
+                    pseudo_dates = drange(this_date, next_date, datetime.timedelta(minutes=5))
+
+                # append the one minute values to here
                 local_sum = []
 
+                # number of seconds in the total interval
                 interval_length_seconds = interval_length*60
 
-                # for each one minute height, compute the correct curve
+                # for each one minute height, compute the correct q from the rating equations
                 for each_height in one_minute_heights:
 
                     _, local_max = check_value_versus_keys(rating_calib, each_height)
 
                     try:
+                        # this is essentially cf/minute
                         instq = 60*logfunc(rating_calib[local_max][0], rating_calib[local_max][1], each_height)
+
                     except Exception:
                         instq = None
 
+                    # this will give back a number of instq values
                     local_sum.append(instq)
 
-                if this_date not in od:
+                # if the pseudo dates exist because the interval is the wrong length
+                if this_date not in od and pseudo_dates != []:
 
+                    # iterate over the local sum and create 5 minute values
+                    for index, each_instq in enumerate(local_sum):
+
+                        # if the index is a multiple of 5, a new list is started
+                        if index%5 == 0:
+                            mini_sum = []
+                            mini_sum.append(each_instq)
+                            # assign height to first value
+                            my_height = one_minute_heights[index]
+
+                        # append to that list each incoming cfm
+                        elif index%5 <4:
+                            mini_sum.append(each_instq)
+
+                        # and then if you have 5 values in it, stick that with a 5 minute date thing and add to the reference
+                        elif index%5 == 4:
+
+                            this_total = sum([x for x in mini_sum if str(x) != 'None'])
+                            this_inst = mini_sum[0]/60
+                            # mean is in cfs
+                            this_mean = sum([x for x in mini_sum if str(x) != 'None'])/300
+
+                            if sys.version_info >=(3,0):
+                                my_date = next(pseudo_dates)
+                            else:
+                                my_date = pseudo_dates.next()
+
+                            try:
+                                od[my_date] ={'stage': round(my_height,3), 'inst_q': this_inst, 'total_q': this_total, 'mean_q': this_mean}
+
+                            except Exception:
+                                od[my_date]= {'stage': round(my_height,3), 'inst_q': None, 'total_q' : None, 'mean_q': None}
+
+                elif this_date not in od and pseudo_dates == []:
                     # as long as there actually is some data
                     if len([x for x in local_sum if str(x) != 'None']) != 0:
 
@@ -776,12 +844,15 @@ def flow_the_data(raw_dts, raw_hts, rating_calib, desired=300):
                     # if for some reason there isn't some data
                     elif len([x for x in local_sum if str(x) != 'None']) == 0:
                         od[this_date]= {'stage': round(this_stage,3), 'inst_q': None, 'total_q' : None, 'mean_q': None}
+
                 else:
                     print("this is an error")
 
                 # update the "current stage and date"
                 this_stage = next_stage
                 this_date = next_date
+
+                #print("date is" + datetime.datetime.strftime(this_date,'%Y-%m-%d %H:%M:%S'))
 
         except StopIteration:
             break
@@ -888,6 +959,11 @@ def print_five_minute_file(final_dictionary, sitecode, wateryear, interval_lengt
 
     csvfilename = name_my_csv(sitecode, wateryear, interval_length)
 
+    if sys.version_info >=(3,0):
+        mode = 'w'
+    else:
+        mode = 'wb'
+
     with open(csvfilename, mode) as writefile:
         writer = csv.writer(writefile, quoting = csv.QUOTE_NONNUMERIC, delimiter = ",")
 
@@ -895,13 +971,23 @@ def print_five_minute_file(final_dictionary, sitecode, wateryear, interval_lengt
 
         sorted_dates = sorted(list(final_dictionary.keys()))
 
+
+        #import pdb; pdb.set_trace()
+
         for index, each_date in enumerate(sorted_dates):
             stage = final_dictionary[each_date]['stage']
             instq = final_dictionary[each_date]['inst_q']
             totalq = final_dictionary[each_date]['total_q']
             eqn_set = final_dictionary[each_date]['eqn_set']
-            flag  = original_data[each_date]['fval']
-            event = original_data[each_date]['event']
+            try:
+                flag  = original_data[each_date]['fval']
+            except KeyError:
+                flag  = 'E'
+
+            try:
+                event = original_data[each_date]['event']
+            except KeyError:
+                event = 'NA'
 
             try:
                 # test that a date is not a sample date
@@ -972,7 +1058,7 @@ def create_monthly_files(sitecode, wateryear, daily_dictionary):
     print(csvfilename_m)
 
     stcode = 'HF004'
-    format = '2'
+    format = '3'
     sorted_dates = sorted(list(daily_dictionary.keys()))
 
     if sys.version_info >= (3,0):
@@ -984,7 +1070,7 @@ def create_monthly_files(sitecode, wateryear, daily_dictionary):
     with open(csvfilename_m, mode) as writefile_m:
         writer_m = csv.writer(writefile_m, quoting = csv.QUOTE_NONNUMERIC, delimiter=",")
 
-        headers_m = ['STCODE', 'FORMAT', 'SITECODE', 'ANNUAL_YEAR' 'WATERYEAR', 'MONTH', 'MEAN_Q', 'MAX_Q', 'MIN_Q', 'MEAN_Q_AREA', 'TOTAL_Q_AREA', 'ESTCODE','ESTDAYS', 'TOTAL_DAYS']
+        headers_m = ['STCODE', 'FORMAT', 'SITECODE', 'ANNUAL_YEAR', 'WATERYEAR', 'MONTH', 'MEAN_Q', 'MAX_Q', 'MIN_Q', 'MEAN_Q_AREA', 'TOTAL_Q_AREA', 'ESTCODE','ESTDAYS', 'TOTAL_DAYS']
 
         writer_m.writerow(headers_m)
 
@@ -1015,7 +1101,14 @@ def create_monthly_files(sitecode, wateryear, daily_dictionary):
                 md[month_found]['tqa'].append(daily_dictionary[each_day]['tqa'])
                 md[month_found]['flag'].append(daily_dictionary[each_day]['flag'])
 
-        for each_month in md.keys():
+
+        # reorganize the months to reflect the water year, and if months are missing, then do not try to find them
+        month_keys = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        real_keys = list(sorted(md.keys()))
+
+        shared_keys = [x for x in month_keys if x in real_keys]
+
+        for each_month in shared_keys:
             num_est = len([x for x in md[each_month]['flag'] if x == 'E'])
             num_question = len([x for x in md[each_month]['flag'] if x == 'Q'])
             num_missing = len([x for x in md[each_month]['flag'] if x == 'M'])
@@ -1068,7 +1161,11 @@ def compute_daily_dictionary(sitecode, wateryear, final_dictionary, original_dic
             daily_d[alt_date]['means'].append(final_dictionary[each_date]['mean_q'])
             daily_d[alt_date]['insts'].append(final_dictionary[each_date]['inst_q'])
             daily_d[alt_date]['tots'].append(final_dictionary[each_date]['total_q'])
-            daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
+
+            try:
+                daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
+            except KeyError:
+                daily_d[alt_date]['flags'].append('E')
 
 
     for each_alternate_date in sorted(list(daily_d.keys())):
@@ -1089,7 +1186,6 @@ def compute_daily_dictionary(sitecode, wateryear, final_dictionary, original_dic
         else:
             daily_flag = "A"
 
-
         try:
             _, tqa, mqa = to_area(sitecode, None, sum(daily_d[each_alternate_date]['tots']), sum(daily_d[each_alternate_date]['means'])/len(daily_d[each_alternate_date]['means']))
 
@@ -1104,6 +1200,7 @@ def compute_daily_dictionary(sitecode, wateryear, final_dictionary, original_dic
             # same format as the csv for daily but to a dictionary
             if each_alternate_date not in output_d:
                 output_d[each_alternate_date] = {'mean': str(round(sum([float(x) for x in daily_d[each_alternate_date]['means'] if str(x) != "None"])/len([float(x) for x in daily_d[each_alternate_date]['means'] if str(x) != "None"]),4)), 'max': str(round(max([float(x) for x in daily_d[each_alternate_date]['insts'] if str(x) != "None"]),4)), 'min': str(round(min([float(x) for x in daily_d[each_alternate_date]['insts'] if str(x) != "None"]),4)), 'mqa': str(round(mqa),4), 'tqa': str(round(tqa),4), 'flag': daily_flag }
+
             elif each_alternate_date in output_d:
                 print("the alternate date is already listed?")
 
@@ -1162,6 +1259,7 @@ def print_daily_values(sitecode, wateryear, final_dictionary, original_dictionar
 
             if alt_date not in daily_d:
 
+                # at least one date must be present and we prefer midnight
                 daily_d[alt_date] = {'means': naner([final_dictionary[each_date]['mean_q']]), 'insts': naner([final_dictionary[each_date]['inst_q']]), 'tots': naner([final_dictionary[each_date]['total_q']]), 'flags':[original_dictionary[each_date]['fval']]}
 
             elif alt_date in daily_d:
@@ -1169,7 +1267,11 @@ def print_daily_values(sitecode, wateryear, final_dictionary, original_dictionar
                 daily_d[alt_date]['means'].append(naner(final_dictionary[each_date]['mean_q']))
                 daily_d[alt_date]['insts'].append(naner(final_dictionary[each_date]['inst_q']))
                 daily_d[alt_date]['tots'].append(naner(final_dictionary[each_date]['total_q']))
-                daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
+
+                try:
+                    daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
+                except KeyError:
+                    daily_d[alt_date]['flags'].append('E')
 
 
         for each_alternate_date in sorted(daily_d.keys()):
@@ -1216,7 +1318,8 @@ def print_daily_values(sitecode, wateryear, final_dictionary, original_dictionar
                     new_row = [stcode, format, sitecode , wateryear, datetime.datetime.strftime(each_alternate_date, '%Y-%m-%d'), str(round(sum(not_none_mean_day)/len(not_none_mean_day),4)), str(round(max(not_none_inst_day),4)), str(round(min(not_none_inst_day),4)), str(round(mqa,4)), str(round(tqa,4)), daily_flag]
 
                 except Exception:
-                    new_row = [stcode, format, sitecode , wateryear, datetime.datetime.strftime(each_alternate_date, '%Y-%m-%d'), str(round(sum(not_none_mean_day)/len(not_none_mean_flag),4)), str(round(max(not_none_inst_day),4)), str(round(min(not_none_inst_day),4)), "None", "None", daily_flag]
+                    import pdb; pdb.set_trace()
+                    new_row = [stcode, format, sitecode , wateryear, datetime.datetime.strftime(each_alternate_date, '%Y-%m-%d'), str(round(sum(not_none_mean_day)/len(not_none_inst_day),4)), str(round(max(not_none_inst_day),4)), str(round(min(not_none_inst_day),4)), "None", "None", daily_flag]
 
             writer.writerow(new_row)
 
@@ -1227,7 +1330,7 @@ def print_sdate_values(wateryear, final_dictionary, sitecode_in, sDate_list):
     areas = {'GSWS01': 237., 'GSWS02': 149., 'GSWS03': 250., 'GSWS06':32, 'GSWS07':38., 'GSWS08':53., 'GSWS09':21., 'GSWS10':25.3, 'GSWSMA':1436., 'GSWSMF':1436., 'GSCC01':171., 'GSCC02': 169., 'GSCC03': 123., 'GSCC04':120.}
 
     stcode = 'HF004'
-    format = '1'
+    format = '6'
     sitecode = sitecode_in
     sorted_dates = sorted(list(final_dictionary.keys()))
 
@@ -1384,6 +1487,7 @@ if __name__ == "__main__":
 
             if value != 'y':
                 sys.exit("Exiting. Please check the adjusted data in " + csvfilename)
+
     elif filetype.lower() == "sql":
         conn, cur = fc()
         print(".....Getting data from SQL Server... warning, this function has NEVER been used before. ")
@@ -1408,6 +1512,8 @@ if __name__ == "__main__":
 
     # create iterators for the pyflow
     o3 = set_up_iterators(o2, o1, wateryear)
+
+
 
     # go through the data
     o4 = loop_over_data(o3, o1)
