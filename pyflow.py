@@ -982,7 +982,7 @@ def print_five_minute_file(final_dictionary, sitecode, wateryear, interval_lengt
             try:
                 flag  = original_data[each_date]['fval']
             except KeyError:
-                flag  = 'E'
+                flag  = 'A'
 
             try:
                 event = original_data[each_date]['event']
@@ -1117,12 +1117,17 @@ def create_monthly_files(sitecode, wateryear, daily_dictionary):
 
             if num_est/num_tot >= 0.05:
                 monthly_flag = "E"
-            elif num_question/num_tot > 0.05:
+
+            elif num_question/num_tot >= 0.05:
                 monthly_flag = "Q"
+                import pdb; pdb.set_trace()
+
             elif num_missing/num_tot >= 0.2:
                 monthly_flag = "M"
-            elif num_missing + num_est + num_question >= 0.05:
+
+            elif (num_missing + num_est + num_question)/num_tot >= 0.05:
                 monthly_flag = "Q"
+
             else:
                 monthly_flag = "A"
 
@@ -1165,7 +1170,7 @@ def compute_daily_dictionary(sitecode, wateryear, final_dictionary, original_dic
             try:
                 daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
             except KeyError:
-                daily_d[alt_date]['flags'].append('E')
+                daily_d[alt_date]['flags'].append('A')
 
 
     for each_alternate_date in sorted(list(daily_d.keys())):
@@ -1271,7 +1276,7 @@ def print_daily_values(sitecode, wateryear, final_dictionary, original_dictionar
                 try:
                     daily_d[alt_date]['flags'].append(original_dictionary[each_date]['fval'])
                 except KeyError:
-                    daily_d[alt_date]['flags'].append('E')
+                    daily_d[alt_date]['flags'].append('A')
 
 
         for each_alternate_date in sorted(daily_d.keys()):
