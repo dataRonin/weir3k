@@ -979,6 +979,7 @@ def print_five_minute_file(final_dictionary, sitecode, wateryear, interval_lengt
             instq = final_dictionary[each_date]['inst_q']
             totalq = final_dictionary[each_date]['total_q']
             eqn_set = final_dictionary[each_date]['eqn_set']
+
             try:
                 flag  = original_data[each_date]['fval']
             except KeyError:
@@ -1115,17 +1116,17 @@ def create_monthly_files(sitecode, wateryear, daily_dictionary):
             num_tot = len([x for x in md[each_month]['flag']])
 
 
-            if num_est/num_tot >= 0.05:
+            if float(num_est)/num_tot >= 0.05:
                 monthly_flag = "E"
 
-            elif num_question/num_tot >= 0.05:
+            elif float(num_question)/num_tot >= 0.05:
                 monthly_flag = "Q"
                 import pdb; pdb.set_trace()
 
-            elif num_missing/num_tot >= 0.2:
+            elif float(num_missing)/num_tot >= 0.2:
                 monthly_flag = "M"
 
-            elif (num_missing + num_est + num_question)/num_tot >= 0.05:
+            elif float(num_missing + num_est + num_question)/num_tot >= 0.05:
                 monthly_flag = "Q"
 
             else:
@@ -1175,9 +1176,9 @@ def compute_daily_dictionary(sitecode, wateryear, final_dictionary, original_dic
 
     for each_alternate_date in sorted(list(daily_d.keys())):
 
-        percent_m = len([x for x in daily_d[each_alternate_date]['flags'] if x == "M"])/len(daily_d[each_alternate_date])
-        percent_e = len([x for x in daily_d[each_alternate_date]['flags']  if x == "E"])/len(daily_d[each_alternate_date])
-        percent_q = len([x for x in daily_d[each_alternate_date]['flags']  if x == "Q"])/len(daily_d[each_alternate_date])
+        percent_m = float(len([x for x in daily_d[each_alternate_date]['flags'] if x == "M"]))/len(daily_d[each_alternate_date])
+        percent_e = float(len([x for x in daily_d[each_alternate_date]['flags']  if x == "E"]))/len(daily_d[each_alternate_date])
+        percent_q = float(len([x for x in daily_d[each_alternate_date]['flags']  if x == "Q"]))/len(daily_d[each_alternate_date])
 
         if percent_m > 0.2:
             daily_flag = "M"
@@ -1281,9 +1282,9 @@ def print_daily_values(sitecode, wateryear, final_dictionary, original_dictionar
 
         for each_alternate_date in sorted(daily_d.keys()):
 
-            percent_m = len([x for x in daily_d[each_alternate_date]['flags'] if x == "M"])/len(daily_d[each_alternate_date])
-            percent_e = len([x for x in daily_d[each_alternate_date]['flags']  if x == "E"])/len(daily_d[each_alternate_date])
-            percent_q = len([x for x in daily_d[each_alternate_date]['flags']  if x == "Q"])/len(daily_d[each_alternate_date])
+            percent_m = float(len([x for x in daily_d[each_alternate_date]['flags'] if x == "M"]))/len(daily_d[each_alternate_date])
+            percent_e = float(len([x for x in daily_d[each_alternate_date]['flags']  if x == "E"]))/len(daily_d[each_alternate_date])
+            percent_q = float(len([x for x in daily_d[each_alternate_date]['flags']  if x == "Q"]))/len(daily_d[each_alternate_date])
 
 
             # flags re-ordered to fit our daily method
